@@ -17,5 +17,8 @@ logs/
 *.tmp
 .DS_Store
 
+# 本地敏感配置（真实密码），模板 application-local.example.yml 进仓库
+**/application-local.yml
+
 # 第三方 Java 升级工具留下的钩子目录，与本项目无关
 .github/modernize/
