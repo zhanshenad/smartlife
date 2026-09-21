@@ -1,0 +1,87 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: smartlife-server
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/smartlife?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    # ${环境变量:仓库内默认值} 写法：默认值是假的，真实密码只存在本机环境变量里，
+    # 一次都不进仓库。本机开发前先 set SMARTLIFE_DB_PASSWORD=你的密码
+    username: ${SMARTLIFE_DB_USERNAME:root}
+    password: ${SMARTLIFE_DB_PASSWORD:smartlife-dev}
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      # 连接泄漏检测：超过 60 秒没归还就告警，帮你在开发期就发现忘关事务
+      leak-detection-threshold: 60000
+
+  data:
+    # ⚠️ 是 spring.data.redis 不是 spring.redis（SB3 改了前缀）
+    redis:
+      host: localhost
+      port: 6379
+      # 专用库，避开苍穹外卖(db0)与黑马点评(db1)，防止 flushdb 时误伤
+      database: 2
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 2000ms
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    listener:
+      simple:
+        # 手动 ACK：成功 basicAck，异常 basicNack(requeue=false) 进死信，
+        # 防止毒消息无限重投（§5.2.6 设计点 2）
+        acknowledge-mode: manual
+        prefetch: 1
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    # 开发期打印 SQL，上线前关掉
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+
+smartlife:
+  jwt:
+    # ⚠️ HS256 要求密钥不少于 256 位（32 字节），太短会在启动时抛 WeakKeyException
+    # 这个默认值是公开的，任何人都能拿它伪造 token —— 生产必须用环境变量覆盖：
+    #   set SMARTLIFE_JWT_SECRET=<一段足够长的随机串>
+    # 注意：本项目的第二道防线（Redis 会话白名单）已改为以 Redis 中的 role 为准（见 TokenInterceptor），
+    # 所以即便密钥泄漏，伪造的 token 也只能拿到攻击者自己的真实权限，无法提权。
+    secret: ${SMARTLIFE_JWT_SECRET:smartlife-jwt-secret-key-2026-please-change-in-production}
+    # JWT 只管签名有效，故意设得远大于 Redis 会话 TTL(30min)
+    expire-minutes: 1440
+  order:
+    # 演示/压测时改成 1，不然等 15 分钟太煎熬（§5.2.6）
+    timeout-minutes: 15
+
+logging:
+  level:
+    com.smartlife: debug

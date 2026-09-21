@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.smartlife</groupId>
+        <artifactId>smartlife-backend</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>smartlife-pojo</artifactId>
+    <name>smartlife-pojo</name>
+    <description>模块②：entity / dto / vo</description>
+
+    <dependencies>
+        <!-- 依赖方向：pojo → common（不可反向） -->
+        <dependency>
+            <groupId>com.smartlife</groupId>
+            <artifactId>smartlife-common</artifactId>
+        </dependency>
+
+        <!-- 只取 MyBatis-Plus 的注解（@TableName / @TableId / @TableField），
+             不引入 starter，避免 pojo 层被自动配置污染 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-annotation</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+
+        <!-- DTO 上的 @NotBlank / @Pattern -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- User.password 上的 @JsonIgnore。虽然能靠 knife4j 传递进来，
+             但代码里用到的注解就该显式声明，免得哪天换掉 knife4j 就断供 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
+        <!-- VO/DTO 上的 @Schema，用于 Knife4j 文档 -->
+        <dependency>
+            <groupId>com.github.xiaoymin</groupId>
+            <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>

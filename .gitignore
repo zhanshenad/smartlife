@@ -1,0 +1,21 @@
+# 构建产物
+target/
+*.jar
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# 日志与临时文件
+logs/
+*.log
+*.tmp
+.DS_Store
+
+# 第三方 Java 升级工具留下的钩子目录，与本项目无关
+.github/modernize/

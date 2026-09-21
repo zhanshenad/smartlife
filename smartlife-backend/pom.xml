@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.12</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.smartlife</groupId>
+    <artifactId>smartlife-backend</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>smartlife-backend</name>
+    <description>智慧生活 SmartLife - 高并发本地生活服务平台</description>
+
+    <modules>
+        <module>smartlife-common</module>
+        <module>smartlife-pojo</module>
+        <module>smartlife-server</module>
+    </modules>
+
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.release>17</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <!-- 见《重构计划》§7.1 依赖清单 -->
+        <mybatis-plus.version>3.5.7</mybatis-plus.version>
+        <redisson.version>3.27.2</redisson.version>
+        <jjwt.version>0.11.5</jjwt.version>
+        <knife4j.version>4.5.0</knife4j.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- ========== 本项目模块（版本随父工程） ========== -->
+            <dependency>
+                <groupId>com.smartlife</groupId>
+                <artifactId>smartlife-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.smartlife</groupId>
+                <artifactId>smartlife-pojo</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- ========== ORM ========== -->
+            <!-- ⚠️ SB3 必须用 spring-boot3 后缀的 starter，用错则启动不报错但 Mapper 全部注入失败 -->
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+                <version>${mybatis-plus.version}</version>
+            </dependency>
+
+            <!-- ========== 分布式锁 ========== -->
+            <!-- 用原生 redisson 而非 redisson-spring-boot-starter：
+                 后者会按 SB 版本拉 redisson-spring-data-3x，版本对不齐时启动即报错；
+                 本项目锁场景是手术式使用，手动配 RedissonConfig 更可控 -->
+            <dependency>
+                <groupId>org.redisson</groupId>
+                <artifactId>redisson</artifactId>
+                <version>${redisson.version}</version>
+            </dependency>
+
+            <!-- ========== JWT ========== -->
+            <!-- ⚠️ 0.9.x 依赖 JAXB，SB3 下不可用 -->
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-api</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-impl</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-jackson</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+
+            <!-- ========== 接口文档 ========== -->
+            <!-- ⚠️ 4.x 是 springdoc 系（jakarta），换掉 3.0.3 后不再需要
+                 spring.mvc.pathmatch.matching-strategy=ant_path_matcher 补丁 -->
+            <dependency>
+                <groupId>com.github.xiaoymin</groupId>
+                <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+                <version>${knife4j.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <configuration>
+                        <excludes>
+                            <exclude>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                            </exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>
