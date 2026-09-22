@@ -12,8 +12,8 @@ import java.time.LocalDateTime;
 
 /**
  * 探店笔记。
- * liked 是展示用的计数，权威数据在 Redis ZSet blog:liked:{blogId} 里
- * （member=userId，score=点赞时间）。ZSet 同时承担两个职责：判重（是否已赞）+ 点赞排行榜（按时间排序）。
+ * 权威数据在 Redis ZSet blog:liked:{blogId} 里。
+ * ZSet 同时承担两个职责：判重（是否已赞）+ 点赞排行榜（按时间排序）。
  */
 @Data
 @TableName("tb_blog")
@@ -40,6 +40,7 @@ public class Blog implements Serializable {
 
     private Integer comments;
 
+    // create_time / update_time / create_user / update_user 的自动填充由 MyMetaObjectHandler 处理
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 

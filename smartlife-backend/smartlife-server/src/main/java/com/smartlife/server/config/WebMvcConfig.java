@@ -15,6 +15,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
     /** 免登录路径。文档相关路径一个都不能漏，少一个打开 doc.html 就是白屏 401 */
     private static final String[] WHITELIST = {
             "/auth/**",
+            // 浏览类接口免登录（贴近真实 App 未登录也能逛），也让 JMeter 压测免带 token
+            "/shop/**",
+            "/shop-type/**",
             "/health",
             "/doc.html",
             "/webjars/**",

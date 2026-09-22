@@ -67,6 +67,9 @@ public class RedisConstants {
     public static final String LOCK_REBUILD_KEY = "lock:rebuild:";
     public static final long LOCK_REBUILD_TTL_SECONDS = 10L;
 
+    /** 启动缓存预热锁（Redisson），多实例部署时只放一个实例执行 */
+    public static final String WARMUP_LOCK_KEY = "lock:warmup";
+
     public static final String CACHE_BLOG_KEY = "cache:blog:";
 
     // ==================== 地理位置 / 社交（§4.1） ====================
