@@ -226,20 +226,24 @@ CREATE TABLE `tb_order_detail` (
 
 -- 购物车：纯 MySQL，不加缓存（定案见《重构计划》§6.2 第 7 条）。
 --    缓存的三条适用条件（热点 / 读多写少 / 可容忍不一致）购物车一条都不满足，
---    做了只会每次读都 miss。加购务必用 DB 端原子自增，别"查出来 +1 再写回"。
+--    做了只会每次读都 miss。加购走 INSERT ... ON DUPLICATE KEY UPDATE number = number + 1，
+--    一条 SQL 原子完成"不存在则插入、存在则 +1"。
+--    dish_id/setmeal_id/dish_flavor 用 0/空串 代替 NULL：
+--    MySQL 唯一索引对 NULL 不去重（NULL != NULL），留 NULL 就防不住重复加购。
 DROP TABLE IF EXISTS `tb_shopping_cart`;
 CREATE TABLE `tb_shopping_cart` (
     `id`          bigint      NOT NULL AUTO_INCREMENT COMMENT '主键',
     `user_id`     bigint      NOT NULL COMMENT '用户 id',
     `name`        varchar(32) DEFAULT NULL COMMENT '商品名称',
     `image`       varchar(255) DEFAULT NULL COMMENT '图片',
-    `dish_id`     bigint      DEFAULT NULL COMMENT '菜品 id',
-    `setmeal_id`  bigint      DEFAULT NULL COMMENT '套餐 id',
-    `dish_flavor` varchar(50) DEFAULT NULL COMMENT '口味',
+    `dish_id`     bigint      NOT NULL DEFAULT 0 COMMENT '菜品 id（加购套餐时为 0）',
+    `setmeal_id`  bigint      NOT NULL DEFAULT 0 COMMENT '套餐 id（加购菜品时为 0）',
+    `dish_flavor` varchar(50) NOT NULL DEFAULT '' COMMENT '口味',
     `number`      int         NOT NULL DEFAULT 1 COMMENT '数量',
     `amount`      int         NOT NULL COMMENT '单价，单位分',
     `create_time` datetime    DEFAULT NULL,
     PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_user_goods` (`user_id`, `dish_id`, `setmeal_id`, `dish_flavor`),
     KEY `idx_user_id` (`user_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '购物车（纯 MySQL，不加缓存；加购用 DB 端原子自增）';
 

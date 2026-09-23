@@ -21,4 +21,7 @@ public interface IShopService extends IService<Shop> {
 
     /** 商家端更新资料：归属校验 + 改库 + 删缓存 */
     void updateShop(ShopDTO dto);
+
+    /** 商家定位自己的店：菜品/套餐/订单等商家端操作共用 */
+    Long requireMyShopId();
 }

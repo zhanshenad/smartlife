@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 
 /**
  * 购物车。纯 MySQL，不加缓存（理由见《重构计划》§6.2 第 7 条）。
- * 加购必须用 DB 端原子自增（UPDATE ... SET number = number + 1），
+ * 加购走 INSERT ... ON DUPLICATE KEY UPDATE number = number + 1（DB 端原子），
  * 不要"查出来 +1 再写回"——并发会丢更新。
  */
 @Data
@@ -30,11 +30,12 @@ public class ShoppingCart implements Serializable {
 
     private String image;
 
-    /** 二选一 */
+    /** 菜品/套餐二选一，未用到的一侧为 0（唯一索引要求非 NULL） */
     private Long dishId;
 
     private Long setmealId;
 
+    /** 无口味为空串 */
     private String dishFlavor;
 
     private Integer number;

@@ -72,6 +72,12 @@
             <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
         </dependency>
 
+        <!-- 菜品/套餐图片上传，凭据走 smartlife.oss 配置（local.yml / 环境变量） -->
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -91,6 +97,14 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- MOCK 测试环境没有 WebSocket 容器，关闭端点注册（真实启动不受影响） -->
+                    <argLine>-Dsmartlife.ws.enabled=false</argLine>
+                </configuration>
             </plugin>
         </plugins>
     </build>

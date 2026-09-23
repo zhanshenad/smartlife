@@ -55,6 +55,14 @@ public class RedisConstants {
     public static final String CACHE_SHOP_TYPE_KEY = "cache:shopType:";
     public static final long CACHE_SHOP_TYPE_TTL_MINUTES = 30L;
 
+    /** 菜品列表缓存，拼接 shopId:categoryId（GEOSEARCH 同理没法按条件过滤，分 key 隔离） */
+    public static final String CACHE_DISH_KEY = "cache:dish:";
+    public static final long CACHE_DISH_TTL_MINUTES = 30L;
+
+    /** 套餐列表缓存，拼接 shopId:categoryId */
+    public static final String CACHE_SETMEAL_KEY = "cache:setmeal:";
+    public static final long CACHE_SETMEAL_TTL_MINUTES = 30L;
+
     /** 空值缓存，防穿透。TTL 取短，避免商家新建后长时间查不到 */
     public static final String CACHE_NULL_VALUE = "";
     public static final long CACHE_NULL_TTL_MINUTES = 2L;

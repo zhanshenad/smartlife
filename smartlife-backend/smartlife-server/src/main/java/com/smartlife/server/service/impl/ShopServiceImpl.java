@@ -128,4 +128,12 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         // 顺序反过来的话，"先删缓存→改库期间并发读把旧值又写回"会造成长期脏数据
         cacheClient.delete(RedisConstants.CACHE_SHOP_KEY + dto.getId());
     }
+
+    @Override
+    public Long requireMyShopId() {
+        Long merchantId = BaseContext.require().getId();
+        return lambdaQuery().eq(Shop::getMerchantId, merchantId)
+                .oneOpt().map(Shop::getId)
+                .orElseThrow(() -> new BusinessException("你还没有店铺"));
+    }
 }

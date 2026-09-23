@@ -81,6 +81,12 @@ smartlife:
   order:
     # 演示/压测时改成 1，不然等 15 分钟太煎熬（§5.2.6）
     timeout-minutes: 15
+  oss:
+    # 假值占位，真值在 application-local.yml（gitignore）或环境变量里
+    endpoint: ${SMARTLIFE_OSS_ENDPOINT:https://oss-cn-hangzhou.aliyuncs.com}
+    bucket: ${SMARTLIFE_OSS_BUCKET:your-bucket-name}
+    access-key-id: ${SMARTLIFE_OSS_AK_ID:fake-ak-id}
+    access-key-secret: ${SMARTLIFE_OSS_AK_SECRET:fake-ak-secret}
 
 logging:
   level:

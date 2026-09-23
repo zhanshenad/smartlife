@@ -5,12 +5,14 @@ import com.smartlife.common.constant.RedisConstants;
 import com.smartlife.server.model.RedisData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -216,6 +218,38 @@ public class CacheClient {
     /** 删缓存（Cache Aside 的"改库后删"动作） */
     public void delete(String key) {
         redis.delete(key);
+    }
+
+    /** 读单对象缓存：未命中或空值标记返回 null */
+    public <R> R get(String key, Class<R> type) {
+        String json = redis.opsForValue().get(key);
+        return (json == null || json.isEmpty()) ? null : read(json, type);
+    }
+
+    /** 读列表缓存：未命中返回 null（命中空列表返回空 List，两者语义不同） */
+    public <R> List<R> getList(String key, Class<R> elementType) {
+        String json = redis.opsForValue().get(key);
+        if (json == null || json.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, objectMapper.getTypeFactory()
+                    .constructCollectionType(List.class, elementType));
+        } catch (Exception e) {
+            throw new IllegalStateException("缓存反序列化失败", e);
+        }
+    }
+
+    /** 按前缀批量删：SCAN 游标收集后统一 DEL，不用 KEYS（会阻塞 Redis 单线程） */
+    public void deleteByPrefix(String prefix) {
+        List<String> keys = new ArrayList<>();
+        try (var cursor = redis.scan(ScanOptions.scanOptions()
+                .match(prefix + "*").count(200).build())) {
+            cursor.forEachRemaining(keys::add);
+        }
+        if (!keys.isEmpty()) {
+            redis.delete(keys);
+        }
     }
 
     // ==================== 锁与序列化 ====================

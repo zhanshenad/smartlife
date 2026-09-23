@@ -18,6 +18,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
             // 浏览类接口免登录（贴近真实 App 未登录也能逛），也让 JMeter 压测免带 token
             "/shop/**",
             "/shop-type/**",
+            "/dish/**",
+            "/setmeal/**",
             "/health",
             "/doc.html",
             "/webjars/**",
