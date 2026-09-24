@@ -44,6 +44,9 @@ public class RedisConstants {
     /** 秒杀券库存 */
     public static final String SECKILL_STOCK_KEY = "seckill:stock:";
 
+    /** 秒杀券"一人一单"预检 Set，成员是 userId */
+    public static final String SECKILL_ORDER_KEY = "seckill:order:";
+
     /** 普通券"一人一张"预检 Set，成员是 userId */
     public static final String VOUCHER_ORDER_KEY = "voucher:order:";
 

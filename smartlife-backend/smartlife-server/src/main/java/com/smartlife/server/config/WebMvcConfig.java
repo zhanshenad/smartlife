@@ -20,6 +20,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
             "/shop-type/**",
             "/dish/**",
             "/setmeal/**",
+            // 只放行浏览，领券/抢券（/voucher/{id}/grab、/seckill）仍需登录
+            "/voucher/list",
             "/health",
             "/doc.html",
             "/webjars/**",

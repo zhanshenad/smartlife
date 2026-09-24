@@ -33,4 +33,8 @@ public class OrdersSubmitDTO implements Serializable {
     private String address;
 
     private String remark;
+
+    /** 可选：下单要核销的券（我的券包里的券订单 id） */
+    @Positive(message = "券不可用")
+    private Long voucherOrderId;
 }

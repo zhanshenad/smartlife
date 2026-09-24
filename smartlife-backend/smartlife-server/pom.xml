@@ -102,8 +102,10 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <!-- MOCK 测试环境没有 WebSocket 容器，关闭端点注册（真实启动不受影响） -->
-                    <argLine>-Dsmartlife.ws.enabled=false</argLine>
+                    <!-- MOCK 测试环境没有 WebSocket 容器，关闭端点注册；
+                         本机跑着真 RabbitMQ，监听器容器不自启，防止消费历史消息污染测试库
+                         （真实启动均不受影响） -->
+                    <argLine>-Dsmartlife.ws.enabled=false -Dspring.rabbitmq.listener.simple.auto-startup=false</argLine>
                 </configuration>
             </plugin>
         </plugins>

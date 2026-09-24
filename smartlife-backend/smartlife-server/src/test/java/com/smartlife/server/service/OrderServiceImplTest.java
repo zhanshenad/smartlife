@@ -1,13 +1,17 @@
 package com.smartlife.server.service;
 
+import com.smartlife.common.constant.RedisConstants;
 import com.smartlife.common.constant.StatusConstants;
 import com.smartlife.common.context.BaseContext;
 import com.smartlife.common.exception.BusinessException;
 import com.smartlife.common.model.LoginUser;
+import com.smartlife.common.util.RedisIdWorker;
 import com.smartlife.pojo.dto.OrdersSubmitDTO;
 import com.smartlife.pojo.dto.ShoppingCartDTO;
 import com.smartlife.pojo.entity.Dish;
 import com.smartlife.pojo.entity.Orders;
+import com.smartlife.pojo.entity.Voucher;
+import com.smartlife.pojo.entity.VoucherOrder;
 import com.smartlife.pojo.vo.OrderSubmitVO;
 import com.smartlife.pojo.vo.OrderVO;
 import org.junit.jupiter.api.AfterEach;
@@ -43,6 +47,12 @@ class OrderServiceImplTest {
     private IShoppingCartService cartService;
     @Autowired
     private IDishService dishService;
+    @Autowired
+    private IVoucherService voucherService;
+    @Autowired
+    private IVoucherOrderService voucherOrderService;
+    @Autowired
+    private RedisIdWorker idWorker;
 
     @AfterEach
     void cleanUp() {
@@ -168,5 +178,107 @@ class OrderServiceImplTest {
         assertEquals("食材售罄", order.getRejectionReason());
         loginAsUser();
         assertEquals(stockBefore, dishService.getById(RICE).getStock());
+    }
+
+    // ==================== 券核销（P4-5） ====================
+
+    /** 造一张本店满减券并给当前用户领上，返回券订单 */
+    private VoucherOrder claimVoucher(int threshold, int actualValue, Long shopId) {
+        Voucher v = new Voucher();
+        v.setShopId(shopId);
+        v.setTitle("测试券");
+        v.setThreshold(threshold);
+        v.setActualValue(actualValue);
+        v.setType(StatusConstants.VoucherType.NORMAL);
+        v.setStatus(StatusConstants.Voucher.ON_SHELF);
+        voucherService.save(v);
+        VoucherOrder order = new VoucherOrder();
+        order.setId(idWorker.nextId(RedisConstants.VOUCHER_ORDER_ID_KEY));
+        order.setUserId(USER_ID);
+        order.setVoucherId(v.getId());
+        voucherOrderService.save(order);
+        return order;
+    }
+
+    @Test
+    @DisplayName("下单核销：折扣金额、实付、券状态与订单关联全部落库")
+    void submitRedeemsVoucher() {
+        loginAsUser();
+        VoucherOrder claim = claimVoucher(1000, 500, SHOP_ID);
+        addDish(RICE);
+        OrdersSubmitDTO dto = submitDto();
+        dto.setVoucherOrderId(claim.getId());
+        OrderSubmitVO vo = orderService.submit(dto);
+
+        int amount = dishService.getById(RICE).getPrice();
+        assertEquals(amount - 500, vo.getPayAmount(), "实付 = 原价 - 抵扣");
+        Orders order = orderService.getById(vo.getId());
+        assertEquals(500, order.getDiscountAmount());
+        assertEquals(claim.getId(), order.getVoucherOrderId());
+        assertEquals(StatusConstants.VoucherOrder.USED,
+                voucherOrderService.getById(claim.getId()).getStatus());
+    }
+
+    @Test
+    @DisplayName("跨店券：拒绝在 B 店核销 A 店的券")
+    void submitRejectsCrossShopVoucher() {
+        loginAsUser();
+        VoucherOrder claim = claimVoucher(0, 500, 999L);
+        addDish(RICE);
+        OrdersSubmitDTO dto = submitDto();
+        dto.setVoucherOrderId(claim.getId());
+        BusinessException e = assertThrows(BusinessException.class, () -> orderService.submit(dto));
+        assertTrue(e.getMessage().contains("不适用"));
+    }
+
+    @Test
+    @DisplayName("低于门槛：拒绝核销")
+    void submitRejectsBelowThreshold() {
+        loginAsUser();
+        VoucherOrder claim = claimVoucher(99999, 500, SHOP_ID);
+        addDish(RICE);
+        OrdersSubmitDTO dto = submitDto();
+        dto.setVoucherOrderId(claim.getId());
+        BusinessException e = assertThrows(BusinessException.class, () -> orderService.submit(dto));
+        assertTrue(e.getMessage().contains("门槛"));
+    }
+
+    @Test
+    @DisplayName("取消退券：券回到未使用、use_time 清空")
+    void cancelRestoresVoucher() {
+        loginAsUser();
+        VoucherOrder claim = claimVoucher(1000, 500, SHOP_ID);
+        addDish(RICE);
+        OrdersSubmitDTO dto = submitDto();
+        dto.setVoucherOrderId(claim.getId());
+        OrderSubmitVO vo = orderService.submit(dto);
+        orderService.cancel(vo.getId());
+
+        VoucherOrder restored = voucherOrderService.getById(claim.getId());
+        assertEquals(StatusConstants.VoucherOrder.UNUSED, restored.getStatus());
+        assertEquals(null, restored.getUseTime());
+    }
+
+    @Test
+    @DisplayName("超时取消：待支付订单自动取消并退券；已支付订单跳过")
+    void timeoutCancelBehaves() {
+        loginAsUser();
+        VoucherOrder claim = claimVoucher(1000, 500, SHOP_ID);
+        addDish(RICE);
+        OrdersSubmitDTO dto = submitDto();
+        dto.setVoucherOrderId(claim.getId());
+        OrderSubmitVO vo = orderService.submit(dto);
+
+        orderService.timeoutCancel(vo.getId());
+        assertEquals(StatusConstants.Order.CANCELLED, orderService.getById(vo.getId()).getStatus());
+        assertEquals(StatusConstants.VoucherOrder.UNUSED,
+                voucherOrderService.getById(claim.getId()).getStatus());
+
+        // 已支付订单再超时取消：静默跳过
+        addDish(RICE);
+        OrderSubmitVO vo2 = orderService.submit(dto);
+        orderService.pay(vo2.getId());
+        orderService.timeoutCancel(vo2.getId());
+        assertEquals(StatusConstants.Order.TO_BE_CONFIRMED, orderService.getById(vo2.getId()).getStatus());
     }
 }

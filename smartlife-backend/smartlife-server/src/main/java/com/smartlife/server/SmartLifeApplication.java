@@ -3,6 +3,7 @@ package com.smartlife.server;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 启动类。
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 里的 GlobalExceptionHandler——不写它的表现是"异常兜底莫名不生效"，很难排查。
  */
 @Slf4j
+@EnableScheduling
 @SpringBootApplication(scanBasePackages = "com.smartlife")
 public class SmartLifeApplication {
 

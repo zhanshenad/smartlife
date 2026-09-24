@@ -37,8 +37,9 @@ spring:
   rabbitmq:
     host: localhost
     port: 5672
-    username: guest
-    password: guest
+    # guest 只能容器内 localhost 连接（loopback 限制），故建专用账号
+    username: smartlife
+    password: smartlife123
     virtual-host: /
     listener:
       simple:

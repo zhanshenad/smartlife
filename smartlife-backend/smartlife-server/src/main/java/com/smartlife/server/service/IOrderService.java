@@ -18,8 +18,11 @@ public interface IOrderService extends IService<Orders> {
     /** 用户催单：推送给订单所属商家 */
     void reminder(Long orderId);
 
-    /** 用户取消：仅待支付可取消，回补库存 */
+    /** 用户取消：仅待支付可取消，回补库存 + 退券 */
     void cancel(Long orderId);
+
+    /** 超时取消：MQ 超时队列与兜底任务共用；非待支付状态静默跳过 */
+    void timeoutCancel(Long orderId);
 
     /** 用户订单分页（自己的），带店铺名 */
     PageResult<OrderVO> pageMine(Integer status, long current, long size);

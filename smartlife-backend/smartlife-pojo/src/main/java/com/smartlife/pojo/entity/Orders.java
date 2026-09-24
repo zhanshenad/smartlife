@@ -59,6 +59,9 @@ public class Orders implements Serializable {
     /** 实付 = amount - discountAmount，下限 0。单独存一列而不是每次算，便于对账与统计 */
     private Integer payAmount;
 
+    /** 下单核销的券订单 id。取消/拒单时按它退券，不存则此单未用券 */
+    private Long voucherOrderId;
+
     private String remark;
 
     // ---- 以下为下单时的收货信息快照，刻意冗余，不受用户后续改地址影响 ----

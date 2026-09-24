@@ -185,6 +185,7 @@ CREATE TABLE `tb_orders` (
     `amount`                  int          NOT NULL DEFAULT 0 COMMENT '订单原价（菜品/套餐小计之和），单位分',
     `discount_amount`         int          NOT NULL DEFAULT 0 COMMENT '券抵扣金额，单位分',
     `pay_amount`              int          NOT NULL DEFAULT 0 COMMENT '实付 = amount - discount_amount，下限 0',
+    `voucher_order_id`        bigint       DEFAULT NULL COMMENT '下单核销的券订单 id，取消/拒单时按它退券；NULL = 未用券',
     `remark`                  varchar(100) DEFAULT NULL COMMENT '备注',
     `phone`                   varchar(11)  DEFAULT NULL COMMENT '收货人手机号（下单快照）',
     `address`                 varchar(255) DEFAULT NULL COMMENT '收货地址（下单快照）',

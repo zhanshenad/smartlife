@@ -10,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -136,7 +137,8 @@ class CacheClientTest {
                 break;
             }
         }
-        assertEquals("新值", after.getName(), "异步重建完成后应读到新值");
+        assertEquals("新值", Objects.requireNonNull(after, "3 秒内未完成异步重建").getName(),
+                "异步重建完成后应读到新值");
     }
 
     @Test
