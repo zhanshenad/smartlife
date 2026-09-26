@@ -170,6 +170,37 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
     }
 
+    // ==================== 核销 / 退券 ====================
+
+    @Override
+    public int redeem(Long voucherOrderId, Long userId, Long shopId, int amount) {
+        VoucherOrder vo = getById(voucherOrderId);
+        if (vo == null || !vo.getUserId().equals(userId)) {
+            throw new BusinessException("券不可用");
+        }
+        if (vo.getStatus() == null || vo.getStatus() != StatusConstants.VoucherOrder.UNUSED) {
+            throw new BusinessException("券已被使用");
+        }
+        Voucher voucher = voucherService.getById(vo.getVoucherId());
+        if (voucher == null || !voucher.getShopId().equals(shopId)) {
+            throw new BusinessException("该券不适用于本店铺");
+        }
+        if (amount < voucher.getThreshold()) {
+            throw new BusinessException("订单金额未满足券的使用门槛");
+        }
+        if (baseMapper.casUse(voucherOrderId, userId) == 0) {
+            throw new BusinessException("券核销失败，请刷新后重试");
+        }
+        return Math.min(voucher.getActualValue(), amount);
+    }
+
+    @Override
+    public void restore(Long voucherOrderId) {
+        if (voucherOrderId != null) {
+            baseMapper.casRestore(voucherOrderId);
+        }
+    }
+
     // ==================== 券包 ====================
 
     @Override

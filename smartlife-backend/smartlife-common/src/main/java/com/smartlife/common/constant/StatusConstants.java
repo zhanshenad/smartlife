@@ -78,6 +78,19 @@ public class StatusConstants {
         public static final int USED = 2;
     }
 
+    /** 评论状态，对应 tb_blog_comments.status */
+    public static class Comment {
+        private Comment() {
+        }
+
+        /** 一级评论的 parentId 哨兵值（二级评论挂一级下，最多两级） */
+        public static final long TOP_LEVEL = 0L;
+
+        public static final int NORMAL = 0;
+        public static final int REPORTED = 1;
+        public static final int BLOCKED = 2;
+    }
+
     /**
      * 秒杀 Lua 返回码，必须与 lua/seckill.lua 一一对应。
      * 本项目比参考实现多了 3/4（时间窗），对齐时最容易漏的是 -1。

@@ -105,6 +105,67 @@ class VoucherOrderServiceImplTest {
         return v;
     }
 
+    // ==================== 核销 / 退券（券域接口） ====================
+
+    /** 造一张本人的未使用券订单 */
+    private VoucherOrder myVoucherOrder(Long voucherId) {
+        VoucherOrder vo = new VoucherOrder();
+        vo.setId(idWorker.nextId(RedisConstants.VOUCHER_ORDER_ID_KEY));
+        vo.setUserId(USER_ID);
+        vo.setVoucherId(voucherId);
+        vo.setStatus(StatusConstants.VoucherOrder.UNUSED);
+        voucherOrderService.save(vo);
+        return vo;
+    }
+
+    @Test
+    @DisplayName("核销：改状态并返回抵扣额")
+    void redeemSucceeds() {
+        Voucher v = newVoucher(1000, 500);
+        VoucherOrder vo = myVoucherOrder(v.getId());
+
+        int discount = voucherOrderService.redeem(vo.getId(), USER_ID, SHOP_ID, 2000);
+
+        assertEquals(500, discount);
+        assertEquals(StatusConstants.VoucherOrder.USED,
+                voucherOrderService.getById(vo.getId()).getStatus());
+    }
+
+    @Test
+    @DisplayName("核销：抵扣额以订单金额封顶")
+    void redeemCapsAtAmount() {
+        Voucher v = newVoucher(0, 1000);
+        VoucherOrder vo = myVoucherOrder(v.getId());
+
+        assertEquals(600, voucherOrderService.redeem(vo.getId(), USER_ID, SHOP_ID, 600));
+    }
+
+    @Test
+    @DisplayName("核销：非本人的券拒绝")
+    void redeemRejectsOthersVoucher() {
+        Voucher v = newVoucher(0, 500);
+        VoucherOrder vo = myVoucherOrder(v.getId());
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> voucherOrderService.redeem(vo.getId(), 999L, SHOP_ID, 1000));
+        assertTrue(e.getMessage().contains("券不可用"));
+    }
+
+    @Test
+    @DisplayName("核销后再核销：拒绝；退券后可再核销")
+    void redeemTwiceRejectedUntilRestored() {
+        Voucher v = newVoucher(0, 500);
+        VoucherOrder vo = myVoucherOrder(v.getId());
+        voucherOrderService.redeem(vo.getId(), USER_ID, SHOP_ID, 1000);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> voucherOrderService.redeem(vo.getId(), USER_ID, SHOP_ID, 1000));
+        assertTrue(e.getMessage().contains("已被使用"));
+
+        voucherOrderService.restore(vo.getId());
+        assertEquals(500, voucherOrderService.redeem(vo.getId(), USER_ID, SHOP_ID, 1000));
+    }
+
     // ==================== 普通券 ====================
 
     @Test

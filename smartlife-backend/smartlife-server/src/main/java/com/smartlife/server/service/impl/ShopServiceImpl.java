@@ -12,6 +12,7 @@ import com.smartlife.pojo.entity.Shop;
 import com.smartlife.pojo.vo.ShopVO;
 import com.smartlife.server.mapper.ShopMapper;
 import com.smartlife.server.service.IShopService;
+import com.smartlife.server.service.IStatsService;
 import com.smartlife.server.util.CacheClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.geo.Distance;
@@ -40,14 +41,22 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
     private final CacheClient cacheClient;
     private final StringRedisTemplate redis;
+    private final IStatsService statsService;
 
-    public ShopServiceImpl(CacheClient cacheClient, StringRedisTemplate redis) {
+    public ShopServiceImpl(CacheClient cacheClient, StringRedisTemplate redis,
+                           IStatsService statsService) {
         this.cacheClient = cacheClient;
         this.redis = redis;
+        this.statsService = statsService;
     }
 
     @Override
     public Shop queryById(Long id) {
+        // UV 埋点：HLL 去重计数（登录用户口径），不影响主流程
+        LoginUser visitor = BaseContext.get();
+        if (visitor != null) {
+            statsService.recordShopVisit(id, visitor.getId());
+        }
         // 热点详情：key 由预热保证常在，miss（flushdb/误删）时方法内部同步自愈
         return cacheClient.queryWithLogicalExpire(
                 RedisConstants.CACHE_SHOP_KEY, id, Shop.class,

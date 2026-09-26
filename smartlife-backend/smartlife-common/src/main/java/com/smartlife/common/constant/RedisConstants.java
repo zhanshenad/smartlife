@@ -91,17 +91,20 @@ public class RedisConstants {
     /** 探店笔记点赞，ZSet：member=userId，score=点赞时间戳 */
     public static final String BLOG_LIKED_KEY = "blog:liked:";
 
-    /** 关注 Set：member=被关注者 userId */
+    /** 关注 Set：member=被关注者 userId（"我关注了谁"） */
     public static final String FOLLOW_KEY = "follow:";
 
-    /** 关注流收件箱，ZSet：member=blogId，score=时间戳 */
+    /** 粉丝 Set：member=粉丝 userId（"谁关注了我"），发笔记推送收件箱用 */
+    public static final String FOLLOWERS_KEY = "follow:followers:";
+
+    /** 关注流收件箱，ZSet：member=笔记id，score=笔记id（自增单调） */
     public static final String FEED_KEY = "feed:";
 
     /** 签到 BitMap，按年月分片：sign:{userId}:{yyyyMM} */
     public static final String USER_SIGN_KEY = "sign:";
 
-    /** UV 统计 HyperLogLog，按天分片 */
-    public static final String USER_UV_KEY = "uv:";
+    /** 店铺 UV 统计 HyperLogLog，按店铺按天分 key：uv:shop:{shopId}:{date} */
+    public static final String UV_SHOP_KEY = "uv:shop:";
 
     // ==================== 全局唯一 ID（RedisIdWorker） ====================
 

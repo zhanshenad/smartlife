@@ -19,21 +19,18 @@ import com.smartlife.pojo.entity.Orders;
 import com.smartlife.pojo.entity.Setmeal;
 import com.smartlife.pojo.entity.Shop;
 import com.smartlife.pojo.entity.ShoppingCart;
-import com.smartlife.pojo.entity.Voucher;
-import com.smartlife.pojo.entity.VoucherOrder;
 import com.smartlife.pojo.vo.OrderSubmitVO;
 import com.smartlife.pojo.vo.OrderVO;
 import com.smartlife.server.mapper.DishMapper;
 import com.smartlife.server.mapper.OrderDetailMapper;
 import com.smartlife.server.mapper.OrderMapper;
 import com.smartlife.server.mapper.SetmealMapper;
-import com.smartlife.server.mapper.VoucherOrderMapper;
 import com.smartlife.server.service.IOrderService;
 import com.smartlife.server.service.ISetmealService;
 import com.smartlife.server.service.IShopService;
 import com.smartlife.server.service.IShoppingCartService;
 import com.smartlife.server.service.IDishService;
-import com.smartlife.server.service.IVoucherService;
+import com.smartlife.server.service.IVoucherOrderService;
 import com.smartlife.server.websocket.WebSocketServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -69,29 +66,26 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
     private final ISetmealService setmealService;
     private final IShoppingCartService shoppingCartService;
     private final IShopService shopService;
-    private final IVoucherService voucherService;
+    private final IVoucherOrderService voucherOrderService;
     private final OrderDetailMapper orderDetailMapper;
     private final DishMapper dishMapper;
     private final SetmealMapper setmealMapper;
-    private final VoucherOrderMapper voucherOrderMapper;
     private final RedisIdWorker idWorker;
     private final RabbitTemplate rabbitTemplate;
 
     public OrderServiceImpl(IDishService dishService, ISetmealService setmealService,
                             IShoppingCartService shoppingCartService, IShopService shopService,
-                            IVoucherService voucherService, OrderDetailMapper orderDetailMapper,
+                            IVoucherOrderService voucherOrderService, OrderDetailMapper orderDetailMapper,
                             DishMapper dishMapper, SetmealMapper setmealMapper,
-                            VoucherOrderMapper voucherOrderMapper, RedisIdWorker idWorker,
-                            RabbitTemplate rabbitTemplate) {
+                            RedisIdWorker idWorker, RabbitTemplate rabbitTemplate) {
         this.dishService = dishService;
         this.setmealService = setmealService;
         this.shoppingCartService = shoppingCartService;
         this.shopService = shopService;
-        this.voucherService = voucherService;
+        this.voucherOrderService = voucherOrderService;
         this.orderDetailMapper = orderDetailMapper;
         this.dishMapper = dishMapper;
         this.setmealMapper = setmealMapper;
-        this.voucherOrderMapper = voucherOrderMapper;
         this.idWorker = idWorker;
         this.rabbitTemplate = rabbitTemplate;
     }
@@ -144,7 +138,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
         }
         // 券核销（同事务）：归属/门槛校验 + CAS 改状态，任一步失败全单回滚
         int discount = dto.getVoucherOrderId() == null ? 0
-                : redeemVoucher(dto.getVoucherOrderId(), userId, dto.getShopId(), amount);
+                : voucherOrderService.redeem(dto.getVoucherOrderId(), userId, dto.getShopId(), amount);
         Orders order = new Orders();
         order.setNumber(String.valueOf(idWorker.nextId(RedisConstants.ORDER_ID_KEY)));
         order.setStatus(StatusConstants.Order.PENDING_PAYMENT);
@@ -298,7 +292,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
         Orders order = requireShopOrder(orderId);
         requireStatus(order, StatusConstants.Order.TO_BE_CONFIRMED, "仅待接单订单可拒单");
         restoreStock(orderId);
-        restoreVoucher(order);
+        voucherOrderService.restore(order.getVoucherOrderId());
         casTransition(orderId, StatusConstants.Order.TO_BE_CONFIRMED, upd -> upd
                 .set(Orders::getStatus, StatusConstants.Order.CANCELLED)
                 .set(Orders::getPayStatus, StatusConstants.Pay.REFUND)
@@ -328,44 +322,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
     /** 取消的公共内核：回补库存 + 退券 + CAS 置取消态。用户取消 / 超时取消共用 */
     private void cancelInternal(Orders order, String reason) {
         restoreStock(order.getId());
-        restoreVoucher(order);
+        voucherOrderService.restore(order.getVoucherOrderId());
         casTransition(order.getId(), StatusConstants.Order.PENDING_PAYMENT, upd -> upd
                 .set(Orders::getStatus, StatusConstants.Order.CANCELLED)
                 .set(Orders::getPayStatus, StatusConstants.Pay.REFUND)
                 .set(Orders::getCancelTime, LocalDateTime.now())
                 .set(Orders::getCancelReason, reason));
-    }
-
-    /**
-     * 下单核销：归属校验（防 A 店券在 B 店抵扣）+ 门槛校验 + CAS 改状态，返回实际抵扣额。
-     * 与订单同事务，失败全回滚（§5.2.3 ⑤）。
-     */
-    private int redeemVoucher(Long voucherOrderId, Long userId, Long shopId, int amount) {
-        VoucherOrder vo = voucherOrderMapper.selectById(voucherOrderId);
-        if (vo == null || !vo.getUserId().equals(userId)) {
-            throw new BusinessException("券不可用");
-        }
-        if (vo.getStatus() == null || vo.getStatus() != StatusConstants.VoucherOrder.UNUSED) {
-            throw new BusinessException("券已被使用");
-        }
-        Voucher voucher = voucherService.getById(vo.getVoucherId());
-        if (voucher == null || !voucher.getShopId().equals(shopId)) {
-            throw new BusinessException("该券不适用于本店铺");
-        }
-        if (amount < voucher.getThreshold()) {
-            throw new BusinessException("订单金额未满足券的使用门槛");
-        }
-        if (voucherOrderMapper.casUse(voucherOrderId, userId) == 0) {
-            throw new BusinessException("券核销失败，请刷新后重试");
-        }
-        return Math.min(voucher.getActualValue(), amount);
-    }
-
-    /** 退券（CAS）：取消/拒单时把核销的券还回券包，与库存回补对称 */
-    private void restoreVoucher(Orders order) {
-        if (order.getVoucherOrderId() != null) {
-            voucherOrderMapper.casRestore(order.getVoucherOrderId());
-        }
     }
 
     /**
