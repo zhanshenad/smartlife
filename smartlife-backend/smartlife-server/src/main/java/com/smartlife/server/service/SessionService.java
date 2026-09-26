@@ -3,11 +3,17 @@ package com.smartlife.server.service;
 import com.smartlife.common.constant.RedisConstants;
 import com.smartlife.common.context.BaseContext;
 import com.smartlife.common.model.LoginUser;
+import com.smartlife.pojo.vo.OnlineSessionVO;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -58,5 +64,32 @@ public class SessionService {
         return jtis.stream()
                 .filter(jti -> redis.hasKey(RedisConstants.LOGIN_TOKEN_KEY + jti))
                 .toList();
+    }
+
+    /** 全站在线会话列表。直扫会话键，绕开反向索引残留过期 jti 的问题（§5.1.6） */
+    public List<OnlineSessionVO> listOnlineAll() {
+        List<OnlineSessionVO> result = new ArrayList<>();
+        ScanOptions options = ScanOptions.scanOptions()
+                .match(RedisConstants.LOGIN_TOKEN_KEY + "*")
+                .count(100)
+                .build();
+        try (Cursor<String> cursor = redis.scan(options)) {
+            cursor.forEachRemaining(key -> {
+                Map<Object, Object> fields = redis.opsForHash().entries(key);
+                if (fields.isEmpty()) {
+                    return;
+                }
+                OnlineSessionVO vo = new OnlineSessionVO();
+                vo.setJti(key.substring(RedisConstants.LOGIN_TOKEN_KEY.length()));
+                vo.setUserId(Long.valueOf((String) fields.get(RedisConstants.SESSION_FIELD_USER_ID)));
+                vo.setNickname((String) fields.get(RedisConstants.SESSION_FIELD_NICKNAME));
+                vo.setRole(Integer.valueOf((String) fields.get(RedisConstants.SESSION_FIELD_ROLE)));
+                vo.setTtlSeconds(redis.getExpire(key));
+                result.add(vo);
+            });
+        }
+        result.sort(Comparator.comparing(OnlineSessionVO::getUserId)
+                .thenComparing(OnlineSessionVO::getJti));
+        return result;
     }
 }

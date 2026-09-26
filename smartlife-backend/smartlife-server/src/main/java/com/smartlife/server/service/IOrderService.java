@@ -44,4 +44,18 @@ public interface IOrderService extends IService<Orders> {
 
     /** 商家完成：派送中 → 已完成 */
     void complete(Long orderId);
+
+    // ==================== 管理端（订单巡检，旁路归属校验） ====================
+
+    /** 全平台订单分页，可按状态与店铺过滤 */
+    PageResult<OrderVO> pageAll(Integer status, Long shopId, long current, long size);
+
+    /** 客服代接单：待接单 → 已接单 */
+    void adminAccept(Long orderId);
+
+    /** 客服代完成：派送中 → 已完成 */
+    void adminComplete(Long orderId);
+
+    /** 客服代取消：待接单/已接单/派送中 → 已取消，退款 + 回补库存 + 退券 */
+    void adminCancel(Long orderId, String reason);
 }

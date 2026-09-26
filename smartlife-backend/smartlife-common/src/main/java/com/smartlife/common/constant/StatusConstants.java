@@ -78,6 +78,21 @@ public class StatusConstants {
         public static final int USED = 2;
     }
 
+    /** 入驻申请状态，对应 tb_merchant_apply.status */
+    public static class MerchantApply {
+        private MerchantApply() {
+        }
+
+        /** 待审核。审核动作只允许发生在该状态上（CAS 幂等） */
+        public static final int PENDING = 0;
+
+        /** 已通过（同事务建店并回填 shopId） */
+        public static final int APPROVED = 1;
+
+        /** 已驳回 */
+        public static final int REJECTED = 2;
+    }
+
     /** 评论状态，对应 tb_blog_comments.status */
     public static class Comment {
         private Comment() {

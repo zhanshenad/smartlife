@@ -4,6 +4,7 @@ import com.smartlife.common.constant.RedisConstants;
 import com.smartlife.common.context.BaseContext;
 import com.smartlife.common.model.LoginUser;
 import com.smartlife.common.util.JwtUtil;
+import com.smartlife.pojo.vo.OnlineSessionVO;
 import com.smartlife.server.interceptor.TokenInterceptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -83,6 +84,23 @@ class SessionServiceTest {
         List<String> online = sessionService.listOnlineJti(USER_ID);
 
         assertEquals(List.of(JTI), online);
+    }
+
+    @Test
+    @DisplayName("全站在线列表：直扫会话键，带身份与剩余 TTL")
+    void listOnlineAllScansTokenKeys() {
+        givenSession();
+
+        List<OnlineSessionVO> all = sessionService.listOnlineAll();
+
+        // 库里可能还有其他会话，只断言自己这条在场且字段齐全
+        OnlineSessionVO mine = all.stream()
+                .filter(vo -> JTI.equals(vo.getJti()))
+                .findFirst().orElseThrow();
+        assertEquals(USER_ID, mine.getUserId());
+        assertEquals(1, mine.getRole());
+        assertEquals("测试", mine.getNickname());
+        assertTrue(mine.getTtlSeconds() != null && mine.getTtlSeconds() > 0);
     }
 
     @Test

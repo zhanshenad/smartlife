@@ -21,6 +21,9 @@ public interface IVoucherOrderService extends IService<VoucherOrder> {
     /** 下单核销：归属/门槛校验 + CAS 改状态，返回实际抵扣额。与调用方事务同参 */
     int redeem(Long voucherOrderId, Long userId, Long shopId, int amount);
 
+    /** 到店核销：商家扫用户券码，持有人从券订单解析，返回抵扣额（全额） */
+    int redeemOnSite(Long voucherOrderId);
+
     /** 退券（CAS status 2→1）：取消/拒单时把核销的券还回券包 */
     void restore(Long voucherOrderId);
 

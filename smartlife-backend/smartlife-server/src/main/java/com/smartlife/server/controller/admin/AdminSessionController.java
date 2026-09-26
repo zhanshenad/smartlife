@@ -1,6 +1,9 @@
 package com.smartlife.server.controller.admin;
 
+import com.smartlife.common.constant.AuditConstants;
 import com.smartlife.common.result.Result;
+import com.smartlife.pojo.vo.OnlineSessionVO;
+import com.smartlife.server.service.AuditRecorder;
 import com.smartlife.server.service.SessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -12,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 管理端会话治理：踢人下线与在线会话查询。仅 role=3 可访问（AuthInterceptor 按路径拦截）。
@@ -22,15 +26,18 @@ import java.util.List;
 public class AdminSessionController {
 
     private final SessionService sessionService;
+    private final AuditRecorder auditRecorder;
 
-    public AdminSessionController(SessionService sessionService) {
+    public AdminSessionController(SessionService sessionService, AuditRecorder auditRecorder) {
         this.sessionService = sessionService;
+        this.auditRecorder = auditRecorder;
     }
 
     @Operation(summary = "踢掉该用户全部会话（所有端）")
     @PostMapping("/{userId}/kick")
     public Result<Void> kickAll(@PathVariable("userId") Long userId) {
         sessionService.kickAll(userId);
+        auditRecorder.record(AuditConstants.ACTION_KICK_ALL, AuditConstants.TARGET_USER, userId);
         return Result.ok();
     }
 
@@ -38,6 +45,8 @@ public class AdminSessionController {
     @DeleteMapping("/{jti}")
     public Result<Void> kickOne(@PathVariable("jti") String jti) {
         sessionService.kickOne(jti);
+        auditRecorder.record(AuditConstants.ACTION_KICK_ONE, AuditConstants.TARGET_SESSION, null,
+                Map.of("jti", jti));
         return Result.ok();
     }
 
@@ -45,5 +54,11 @@ public class AdminSessionController {
     @GetMapping("/online/{userId}")
     public Result<List<String>> listOnline(@PathVariable("userId") Long userId) {
         return Result.ok(sessionService.listOnlineJti(userId));
+    }
+
+    @Operation(summary = "全站在线会话列表")
+    @GetMapping("/online")
+    public Result<List<OnlineSessionVO>> listOnlineAll() {
+        return Result.ok(sessionService.listOnlineAll());
     }
 }

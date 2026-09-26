@@ -30,6 +30,9 @@ public class UserVO implements Serializable {
     @Schema(description = "1 用户端 2 商家端 3 管理端")
     private Integer role;
 
+    @Schema(description = "0 禁用 1 启用")
+    private Integer status;
+
     @Schema(description = "手机号，脱敏展示")
     private String phone;
 
@@ -40,6 +43,7 @@ public class UserVO implements Serializable {
         vo.setIcon(user.getIcon());
         vo.setSex(user.getSex());
         vo.setRole(user.getRole());
+        vo.setStatus(user.getStatus());
         vo.setPhone(maskPhone(user.getPhone()));
         return vo;
     }

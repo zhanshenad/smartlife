@@ -1,5 +1,6 @@
 package com.smartlife.server.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.smartlife.common.constant.RedisConstants;
 import com.smartlife.common.constant.StatusConstants;
@@ -7,9 +8,11 @@ import com.smartlife.common.exception.BusinessException;
 import com.smartlife.pojo.dto.VoucherDTO;
 import com.smartlife.pojo.entity.SeckillVoucher;
 import com.smartlife.pojo.entity.Voucher;
+import com.smartlife.pojo.entity.VoucherOrder;
 import com.smartlife.pojo.vo.VoucherVO;
 import com.smartlife.server.mapper.SeckillVoucherMapper;
 import com.smartlife.server.mapper.VoucherMapper;
+import com.smartlife.server.mapper.VoucherOrderMapper;
 import com.smartlife.server.service.IShopService;
 import com.smartlife.server.service.IVoucherService;
 import org.springframework.beans.BeanUtils;
@@ -31,12 +34,14 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
 
     private final IShopService shopService;
     private final SeckillVoucherMapper seckillVoucherMapper;
+    private final VoucherOrderMapper voucherOrderMapper;
     private final StringRedisTemplate stringRedisTemplate;
 
     public VoucherServiceImpl(IShopService shopService, SeckillVoucherMapper seckillVoucherMapper,
-                              StringRedisTemplate stringRedisTemplate) {
+                              VoucherOrderMapper voucherOrderMapper, StringRedisTemplate stringRedisTemplate) {
         this.shopService = shopService;
         this.seckillVoucherMapper = seckillVoucherMapper;
+        this.voucherOrderMapper = voucherOrderMapper;
         this.stringRedisTemplate = stringRedisTemplate;
     }
 
@@ -78,6 +83,68 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
                 .eq(Voucher::getShopId, shopService.requireMyShopId())
                 .orderByDesc(Voucher::getCreateTime)
                 .list();
+    }
+
+    @Override
+    public void updateVoucher(Long id, VoucherDTO dto) {
+        Voucher existed = requireMyVoucher(id);
+        // 秒杀券的 stock/时间窗牵动 Redis 预热与已抢用户资格，一律不改（DTO 里的值被忽略）
+        Voucher voucher = new Voucher();
+        voucher.setId(id);
+        voucher.setTitle(dto.getTitle());
+        voucher.setSubTitle(dto.getSubTitle());
+        voucher.setRules(dto.getRules());
+        voucher.setThreshold(dto.getThreshold() == null ? 0 : dto.getThreshold());
+        voucher.setActualValue(dto.getActualValue());
+        if (dto.getType() != null && dto.getType() != existed.getType()) {
+            throw new BusinessException("券类型不允许修改");
+        }
+        updateById(voucher);
+    }
+
+    @Override
+    public void startStop(Long id, int status) {
+        if (status != StatusConstants.Voucher.ON_SHELF && status != StatusConstants.Voucher.OFF_SHELF) {
+            throw new BusinessException("非法的状态值");
+        }
+        requireMyVoucher(id);
+        lambdaUpdate().eq(Voucher::getId, id).set(Voucher::getStatus, status).update();
+    }
+
+    @Override
+    @Transactional
+    public void removeVoucher(Long id) {
+        // 调用本身做存在+归属校验，返回值此处用不到
+        requireMyVoucher(id);
+        Long claimed = voucherOrderMapper.selectCount(
+                new LambdaQueryWrapper<VoucherOrder>()
+                        .eq(VoucherOrder::getVoucherId, id));
+        if (claimed != null && claimed > 0) {
+            throw new BusinessException("该券已有 " + claimed + " 人领取，只能下架不能删除");
+        }
+        removeById(id);
+        seckillVoucherMapper.deleteById(id);
+        // 事务提交后再清 Redis：回滚了不删，避免"DB 券还在、Redis 预热没了"
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                stringRedisTemplate.delete(RedisConstants.SECKILL_STOCK_KEY + id);
+                stringRedisTemplate.delete(RedisConstants.SECKILL_ORDER_KEY + id);
+                stringRedisTemplate.delete(RedisConstants.VOUCHER_ORDER_KEY + id);
+            }
+        });
+    }
+
+    /** 归属校验：只能操作本店的券 */
+    private Voucher requireMyVoucher(Long id) {
+        Voucher voucher = getById(id);
+        if (voucher == null) {
+            throw new BusinessException("券不存在");
+        }
+        if (!voucher.getShopId().equals(shopService.requireMyShopId())) {
+            throw new BusinessException("只能操作本店铺的券");
+        }
+        return voucher;
     }
 
     /** 秒杀字段的条件校验：库存、时间窗必填且 begin < end */

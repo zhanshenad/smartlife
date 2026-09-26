@@ -14,6 +14,7 @@ import com.smartlife.pojo.entity.VoucherOrder;
 import com.smartlife.pojo.vo.VoucherOrderVO;
 import com.smartlife.server.mapper.SeckillVoucherMapper;
 import com.smartlife.server.mapper.VoucherOrderMapper;
+import com.smartlife.server.service.IShopService;
 import com.smartlife.server.service.IVoucherOrderService;
 import com.smartlife.server.service.IVoucherService;
 import lombok.extern.slf4j.Slf4j;
@@ -58,16 +59,19 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     private final StringRedisTemplate redis;
     private final IVoucherService voucherService;
+    private final IShopService shopService;
     private final SeckillVoucherMapper seckillVoucherMapper;
     private final RedisIdWorker idWorker;
     private final TransactionTemplate transactionTemplate;
     private final RabbitTemplate rabbitTemplate;
 
     public VoucherOrderServiceImpl(StringRedisTemplate redis, IVoucherService voucherService,
-                                   SeckillVoucherMapper seckillVoucherMapper, RedisIdWorker idWorker,
-                                   TransactionTemplate transactionTemplate, RabbitTemplate rabbitTemplate) {
+                                   IShopService shopService, SeckillVoucherMapper seckillVoucherMapper,
+                                   RedisIdWorker idWorker, TransactionTemplate transactionTemplate,
+                                   RabbitTemplate rabbitTemplate) {
         this.redis = redis;
         this.voucherService = voucherService;
+        this.shopService = shopService;
         this.seckillVoucherMapper = seckillVoucherMapper;
         this.idWorker = idWorker;
         this.transactionTemplate = transactionTemplate;
@@ -174,6 +178,34 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Override
     public int redeem(Long voucherOrderId, Long userId, Long shopId, int amount) {
+        Voucher voucher = redeemCore(voucherOrderId, userId, shopId);
+        if (amount < voucher.getThreshold()) {
+            throw new BusinessException("订单金额未满足券的使用门槛");
+        }
+        return Math.min(voucher.getActualValue(), amount);
+    }
+
+    @Override
+    public void restore(Long voucherOrderId) {
+        if (voucherOrderId != null) {
+            baseMapper.casRestore(voucherOrderId);
+        }
+    }
+
+    @Override
+    public int redeemOnSite(Long voucherOrderId) {
+        Long shopId = shopService.requireMyShopId();
+        VoucherOrder vo = getById(voucherOrderId);
+        if (vo == null) {
+            throw new BusinessException("券码无效");
+        }
+        // 到店场景没有订单金额，不做门槛校验、全额抵扣：
+        // 满减券的门槛由商家现场判断消费是否达标（走 redeem 的门槛校验会因 面值<门槛 永远失败）
+        return redeemCore(voucherOrderId, vo.getUserId(), shopId).getActualValue();
+    }
+
+    /** 核销公共内核：归属/状态/归属店铺/CAS。门槛校验只属于有订单金额的场景 */
+    private Voucher redeemCore(Long voucherOrderId, Long userId, Long shopId) {
         VoucherOrder vo = getById(voucherOrderId);
         if (vo == null || !vo.getUserId().equals(userId)) {
             throw new BusinessException("券不可用");
@@ -185,20 +217,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if (voucher == null || !voucher.getShopId().equals(shopId)) {
             throw new BusinessException("该券不适用于本店铺");
         }
-        if (amount < voucher.getThreshold()) {
-            throw new BusinessException("订单金额未满足券的使用门槛");
-        }
         if (baseMapper.casUse(voucherOrderId, userId) == 0) {
             throw new BusinessException("券核销失败，请刷新后重试");
         }
-        return Math.min(voucher.getActualValue(), amount);
-    }
-
-    @Override
-    public void restore(Long voucherOrderId) {
-        if (voucherOrderId != null) {
-            baseMapper.casRestore(voucherOrderId);
-        }
+        return voucher;
     }
 
     // ==================== 券包 ====================

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.smartlife.common.constant.AuditConstants;
 import com.smartlife.common.constant.MQConstants;
 import com.smartlife.common.constant.RedisConstants;
 import com.smartlife.common.constant.StatusConstants;
@@ -31,6 +32,7 @@ import com.smartlife.server.service.IShopService;
 import com.smartlife.server.service.IShoppingCartService;
 import com.smartlife.server.service.IDishService;
 import com.smartlife.server.service.IVoucherOrderService;
+import com.smartlife.server.service.AuditRecorder;
 import com.smartlife.server.websocket.WebSocketServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -72,12 +74,14 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
     private final SetmealMapper setmealMapper;
     private final RedisIdWorker idWorker;
     private final RabbitTemplate rabbitTemplate;
+    private final AuditRecorder auditRecorder;
 
     public OrderServiceImpl(IDishService dishService, ISetmealService setmealService,
                             IShoppingCartService shoppingCartService, IShopService shopService,
                             IVoucherOrderService voucherOrderService, OrderDetailMapper orderDetailMapper,
                             DishMapper dishMapper, SetmealMapper setmealMapper,
-                            RedisIdWorker idWorker, RabbitTemplate rabbitTemplate) {
+                            RedisIdWorker idWorker, RabbitTemplate rabbitTemplate,
+                            AuditRecorder auditRecorder) {
         this.dishService = dishService;
         this.setmealService = setmealService;
         this.shoppingCartService = shoppingCartService;
@@ -88,6 +92,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
         this.setmealMapper = setmealMapper;
         this.idWorker = idWorker;
         this.rabbitTemplate = rabbitTemplate;
+        this.auditRecorder = auditRecorder;
     }
 
     // ==================== 用户端 ====================
@@ -317,6 +322,72 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
                 .set(Orders::getDeliveryTime, LocalDateTime.now()));
     }
 
+    // ==================== 管理端：订单巡检 ====================
+
+    @Override
+    public PageResult<OrderVO> pageAll(Integer status, Long shopId, long current, long size) {
+        Page<Orders> page = lambdaQuery()
+                .eq(status != null, Orders::getStatus, status)
+                .eq(shopId != null, Orders::getShopId, shopId)
+                .orderByDesc(Orders::getOrderTime)
+                .page(new Page<>(current, size));
+        return PageResult.of(page.getTotal(), attachShopName(page.getRecords()));
+    }
+
+    @Override
+    @Transactional
+    public void adminAccept(Long orderId) {
+        Orders order = requireOrder(orderId);
+        requireStatus(order, StatusConstants.Order.TO_BE_CONFIRMED, "仅待接单订单可代接单");
+        casTransition(orderId, StatusConstants.Order.TO_BE_CONFIRMED,
+                upd -> upd.set(Orders::getStatus, StatusConstants.Order.CONFIRMED));
+        auditRecorder.record(AuditConstants.ACTION_ORDER_ADMIN_ACCEPT,
+                AuditConstants.TARGET_ORDER, orderId);
+    }
+
+    @Override
+    @Transactional
+    public void adminComplete(Long orderId) {
+        Orders order = requireOrder(orderId);
+        requireStatus(order, StatusConstants.Order.DELIVERY_IN_PROGRESS, "仅派送中订单可代完成");
+        casTransition(orderId, StatusConstants.Order.DELIVERY_IN_PROGRESS, upd -> upd
+                .set(Orders::getStatus, StatusConstants.Order.COMPLETED)
+                .set(Orders::getDeliveryTime, LocalDateTime.now()));
+        auditRecorder.record(AuditConstants.ACTION_ORDER_ADMIN_COMPLETE,
+                AuditConstants.TARGET_ORDER, orderId);
+    }
+
+    @Override
+    @Transactional
+    public void adminCancel(Long orderId, String reason) {
+        Orders order = requireOrder(orderId);
+        if (order.getStatus() == null || order.getStatus() < StatusConstants.Order.TO_BE_CONFIRMED
+                || order.getStatus() > StatusConstants.Order.DELIVERY_IN_PROGRESS) {
+            throw new BusinessException("仅待接单/已接单/派送中的订单可代取消");
+        }
+        restoreStock(orderId);
+        voucherOrderService.restore(order.getVoucherOrderId());
+        // 前驱是一组状态：CAS 用 IN 而非单值，并发流转时输掉的一方收到状态已变化
+        boolean ok = lambdaUpdate()
+                .eq(Orders::getId, orderId)
+                .in(Orders::getStatus,
+                        StatusConstants.Order.TO_BE_CONFIRMED,
+                        StatusConstants.Order.CONFIRMED,
+                        StatusConstants.Order.DELIVERY_IN_PROGRESS)
+                .set(Orders::getStatus, StatusConstants.Order.CANCELLED)
+                .set(Orders::getPayStatus, StatusConstants.Pay.REFUND)
+                .set(Orders::getCancelTime, LocalDateTime.now())
+                .set(Orders::getCancelReason,
+                        "管理员代取消：" + (reason == null || reason.isBlank() ? "客服处置" : reason))
+                .update();
+        if (!ok) {
+            throw new BusinessException("订单状态已变化，请刷新后重试");
+        }
+        auditRecorder.record(AuditConstants.ACTION_ORDER_ADMIN_CANCEL,
+                AuditConstants.TARGET_ORDER, orderId,
+                Map.of("from", order.getStatus()));
+    }
+
     // ==================== 私有辅助 ====================
 
     /** 取消的公共内核：回补库存 + 退券 + CAS 置取消态。用户取消 / 超时取消共用 */
@@ -416,6 +487,15 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
             vos.add(vo);
         }
         return vos;
+    }
+
+    /** 管理端巡检用：只确认订单存在，不做归属校验（客服可旁路处置任意订单） */
+    private Orders requireOrder(Long orderId) {
+        Orders order = getById(orderId);
+        if (order == null) {
+            throw new BusinessException("订单不存在");
+        }
+        return order;
     }
 
     private Orders requireMyOrder(Long orderId) {
