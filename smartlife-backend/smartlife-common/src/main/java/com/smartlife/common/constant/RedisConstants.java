@@ -50,6 +50,9 @@ public class RedisConstants {
     /** 普通券"一人一张"预检 Set，成员是 userId */
     public static final String VOUCHER_ORDER_KEY = "voucher:order:";
 
+    /** 秒杀对照组（SECKILL_LUA_ENABLED=false）的一人一单锁，按用户加锁 */
+    public static final String SECKILL_LOCK_KEY = "lock:seckill:order:";
+
     // ==================== 缓存（§5.3） ====================
 
     public static final String CACHE_SHOP_KEY = "cache:shop:";

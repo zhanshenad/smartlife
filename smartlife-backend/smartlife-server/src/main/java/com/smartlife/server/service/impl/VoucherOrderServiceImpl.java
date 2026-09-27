@@ -18,7 +18,10 @@ import com.smartlife.server.service.IShopService;
 import com.smartlife.server.service.IVoucherOrderService;
 import com.smartlife.server.service.IVoucherService;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -64,11 +67,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private final RedisIdWorker idWorker;
     private final TransactionTemplate transactionTemplate;
     private final RabbitTemplate rabbitTemplate;
+    private final RedissonClient redissonClient;
 
     public VoucherOrderServiceImpl(StringRedisTemplate redis, IVoucherService voucherService,
                                    IShopService shopService, SeckillVoucherMapper seckillVoucherMapper,
                                    RedisIdWorker idWorker, TransactionTemplate transactionTemplate,
-                                   RabbitTemplate rabbitTemplate) {
+                                   RabbitTemplate rabbitTemplate, RedissonClient redissonClient) {
         this.redis = redis;
         this.voucherService = voucherService;
         this.shopService = shopService;
@@ -76,6 +80,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         this.idWorker = idWorker;
         this.transactionTemplate = transactionTemplate;
         this.rabbitTemplate = rabbitTemplate;
+        this.redissonClient = redissonClient;
     }
 
     // ==================== 普通券：同步链路（§5.2.5） ====================
@@ -111,8 +116,19 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     // ==================== 秒杀券：异步链路（§5.2.6） ====================
 
+    /**
+     * 压测对照组开关（§5.2.10）：true 走 Lua 预检 + MQ 异步（主方案），
+     * false 走 Redisson 锁同步链路。两套链路压测对比吞吐与长尾。
+     */
+    @Value("${smartlife.seckill.lua-enabled:true}")
+    private boolean luaEnabled;
+
     @Override
     public Long seckillVoucher(Long voucherId) {
+        return luaEnabled ? seckillWithLua(voucherId) : seckillWithLock(voucherId);
+    }
+
+    private Long seckillWithLua(Long voucherId) {
         Long userId = BaseContext.require().getId();
         requireOnShelfVoucher(voucherId);
         SeckillVoucher sv = seckillVoucherMapper.selectById(voucherId);
@@ -134,6 +150,55 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 new SeckillMessage(userId, voucherId, orderId));
         // 返回时订单尚未落库——这就是异步链路"快"的来源（§5.2.9）
         return orderId;
+    }
+
+    /**
+     * 对照组：Redisson 锁同步链路。锁粒度是用户不是券——一人一单只需同用户串行，
+     * 不同用户并行；库存超卖由 DB 乐观锁（stock > 0）兜底。
+     * 返回时订单已落库，与异步链路形成"同步事务在响应里 vs 异步落库"的对照。
+     */
+    private Long seckillWithLock(Long voucherId) {
+        Long userId = BaseContext.require().getId();
+        requireOnShelfVoucher(voucherId);
+        SeckillVoucher sv = seckillVoucherMapper.selectById(voucherId);
+        if (sv == null) {
+            throw new BusinessException("该券不是秒杀券");
+        }
+        long now = System.currentTimeMillis();
+        if (now < sv.getBeginTime().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()) {
+            throw new BusinessException("秒杀尚未开始");
+        }
+        if (now > sv.getEndTime().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()) {
+            throw new BusinessException("秒杀已结束");
+        }
+
+        RLock lock = redissonClient.getLock(RedisConstants.SECKILL_LOCK_KEY + userId);
+        if (!lock.tryLock()) {
+            throw new BusinessException("操作过于频繁，请稍后重试");
+        }
+        try {
+            Long orderId = transactionTemplate.execute(status -> {
+                if (lambdaQuery().eq(VoucherOrder::getUserId, userId)
+                        .eq(VoucherOrder::getVoucherId, voucherId).exists()) {
+                    throw new BusinessException("您已抢过该券");
+                }
+                long id = idWorker.nextId(RedisConstants.VOUCHER_ORDER_ID_KEY);
+                VoucherOrder order = new VoucherOrder();
+                order.setId(id);
+                order.setUserId(userId);
+                order.setVoucherId(voucherId);
+                order.setStatus(StatusConstants.VoucherOrder.UNUSED);
+                save(order);
+                if (seckillVoucherMapper.deductStock(voucherId) == 0) {
+                    status.setRollbackOnly();
+                    throw new BusinessException("该券已抢光");
+                }
+                return id;
+            });
+            return orderId;
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override
