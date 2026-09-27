@@ -28,4 +28,7 @@ public class LoginVO implements Serializable {
 
     @Schema(description = "登录后的默认首页路径")
     private String homePath;
+
+    @Schema(description = "是否已设置密码：false 时前端引导用户先设置密码")
+    private Boolean passwordSet;
 }

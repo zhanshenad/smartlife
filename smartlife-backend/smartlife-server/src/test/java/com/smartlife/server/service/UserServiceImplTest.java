@@ -2,6 +2,7 @@ package com.smartlife.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartlife.common.constant.RedisConstants;
+import com.smartlife.common.context.BaseContext;
 import com.smartlife.common.constant.RoleConstants;
 import com.smartlife.common.exception.BusinessException;
 import com.smartlife.common.model.TokenPayload;
@@ -119,6 +120,75 @@ class UserServiceImplTest {
         assertTrue(user.getNickName().startsWith("用户"));
         assertEquals(RoleConstants.USER, user.getRole());
         assertEquals(1, user.getStatus());
+    }
+
+    // ==================== 密码通道 ====================
+
+    @Test
+    @DisplayName("验证码登录返回 passwordSet=false：新用户未设密码，前端据此引导")
+    void newLoginReportsPasswordUnset() {
+        LoginVO vo = loginAfterSendCode();
+        assertEquals(Boolean.FALSE, vo.getPasswordSet());
+    }
+
+    @Test
+    @DisplayName("设密 → 密码登录成功；未设密码/错密/不存在的账号全部拒绝")
+    void passwordLoginFlow() {
+        LoginVO vo = loginAfterSendCode();
+        Long userId = jwtUtil.parse(vo.getToken()).user().getId();
+        BaseContext.set(new com.smartlife.common.model.LoginUser(userId, 1, "测试"));
+
+        // 未设密码：密码登录拒绝
+        LoginDTO dto = new LoginDTO();
+        dto.setPhone(PHONE);
+        dto.setPassword("test123456");
+        BusinessException e1 = assertThrows(BusinessException.class, () -> userService.login(dto));
+        assertTrue(e1.getMessage().contains("尚未设置密码"));
+
+        // 首次设置：免旧密
+        com.smartlife.pojo.dto.PasswordDTO set = new com.smartlife.pojo.dto.PasswordDTO();
+        set.setNewPassword("test123456");
+        userService.setPassword(set);
+
+        LoginVO byPassword = userService.login(dto);
+        assertNotNull(byPassword.getToken());
+        assertEquals(Boolean.TRUE, byPassword.getPasswordSet());
+
+        // 错误密码拒绝
+        dto.setPassword("wrong123456");
+        BusinessException e2 = assertThrows(BusinessException.class, () -> userService.login(dto));
+        assertTrue(e2.getMessage().contains("密码错误"));
+
+        // 不存在的账号拒绝（密码通道不注册）
+        dto.setPhone("19999990999");
+        BusinessException e3 = assertThrows(BusinessException.class, () -> userService.login(dto));
+        assertTrue(e3.getMessage().contains("账号不存在"));
+    }
+
+    @Test
+    @DisplayName("修改密码：验旧密 + 踢全端；首次设置不踢")
+    void changePasswordKicksAll() {
+        LoginVO vo = loginAfterSendCode();
+        Long userId = jwtUtil.parse(vo.getToken()).user().getId();
+        BaseContext.set(new com.smartlife.common.model.LoginUser(userId, 1, "测试"));
+
+        com.smartlife.pojo.dto.PasswordDTO first = new com.smartlife.pojo.dto.PasswordDTO();
+        first.setNewPassword("first123456");
+        userService.setPassword(first);
+        assertFalse(Boolean.TRUE.equals(redis.hasKey(RedisConstants.LOGIN_VER_KEY + userId)),
+                "首次设置密码不应踢会话");
+
+        // 旧密码错误：拒绝修改
+        com.smartlife.pojo.dto.PasswordDTO wrongOld = new com.smartlife.pojo.dto.PasswordDTO();
+        wrongOld.setOldPassword("wrongold1");
+        wrongOld.setNewPassword("second123456");
+        assertThrows(BusinessException.class, () -> userService.setPassword(wrongOld));
+
+        // 旧密码正确：改密成功并踢全端（ver +1）
+        wrongOld.setOldPassword("first123456");
+        userService.setPassword(wrongOld);
+        assertEquals("1", redis.opsForValue().get(RedisConstants.LOGIN_VER_KEY + userId),
+                "修改密码应踢全端会话");
     }
 
     private LoginVO loginAfterSendCode() {

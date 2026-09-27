@@ -22,3 +22,8 @@ logs/
 
 # 第三方 Java 升级工具留下的钩子目录，与本项目无关
 .github/modernize/
+
+# 前端三端（演示级，本地运行不入库：npm run dev 各起 5173/5174/5175，proxy 到 8086）
+smartlife-web-user/
+smartlife-web-merchant/
+smartlife-web-admin/
