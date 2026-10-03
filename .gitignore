@@ -27,3 +27,8 @@ logs/
 smartlife-web-user/
 smartlife-web-merchant/
 smartlife-web-admin/
+
+# 本地文档（个人复盘与求职材料，不入库）
+重构计划.md
+面试文档.md
+简历素材.md
