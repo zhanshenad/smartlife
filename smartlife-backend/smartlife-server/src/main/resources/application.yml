@@ -24,7 +24,7 @@ spring:
     redis:
       host: localhost
       port: 6379
-      # 专用库，避开苍穹外卖(db0)与黑马点评(db1)，防止 flushdb 时误伤
+      # 专用库，避开本机其他项目占用的 db0 与 db1，防止 flushdb 时误伤
       database: 2
       timeout: 3000ms
       lettuce:

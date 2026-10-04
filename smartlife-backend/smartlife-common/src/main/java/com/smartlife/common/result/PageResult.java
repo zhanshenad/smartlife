@@ -9,7 +9,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 分页响应体。字段名对齐苍穹外卖与 Element Plus 分页组件的默认取值，
+ * 分页响应体。字段名对齐 Element Plus 分页组件的默认取值，
  * 前端不需要做字段映射。
  */
 @Data

@@ -11,7 +11,7 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 店铺。吸收电商点评的字段结构 + 三合一的商家归属。
+ * 店铺。merchant_id 唯一决定归属，经纬度供 GEO 附近搜索。
  */
 @Data
 @TableName("tb_shop")

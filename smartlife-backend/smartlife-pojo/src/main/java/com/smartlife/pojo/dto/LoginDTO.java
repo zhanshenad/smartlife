@@ -10,7 +10,7 @@ import lombok.Data;
 import java.io.Serializable;
 
 /**
- * 登录入参：验证码与密码双通道（对齐黑马点评 LoginFormDTO 三字段形态）。
+ * 登录入参：验证码与密码双通道。
  * code 与 password 至少一个非空，服务层分流校验。
  */
 @Data

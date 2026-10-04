@@ -6,7 +6,7 @@ import lombok.Data;
 import java.io.Serializable;
 import java.util.List;
 
-/** 看板按日趋势，平行数组（与 ECharts x/y 轴直接对应，苍穹报表同构） */
+/** 看板按日趋势，平行数组（与 ECharts x/y 轴直接对应） */
 @Data
 @Schema(description = "按日趋势")
 public class ReportTrendVO implements Serializable {

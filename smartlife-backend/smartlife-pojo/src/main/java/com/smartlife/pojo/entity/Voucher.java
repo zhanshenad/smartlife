@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 /**
  * 优惠券（普通券与秒杀券共用本表，靠 type 区分）。
  * 本项目是「领券模型」不是「买券模型」（§5.2.2）：
- * 黑马点评原表的 pay_value（买券花的钱）已删除，改为 threshold（使用门槛）。
+ * 没有 pay_value（买券花的钱），只有 threshold（使用门槛）。
  * 秒杀券的时间窗与库存在 SeckillVoucher 里，本表只放两种券共有的属性。
  */
 @Data
@@ -45,7 +45,7 @@ public class Voucher implements Serializable {
 
     /**
      * 0 普通券 1 秒杀券，见 StatusConstants.VoucherType。
-     * 只用来对齐黑马点评原表。判断"是不是秒杀券"要看有没有配套的 tb_seckill_voucher 记录（§5.2.1），
+     * 此字段仅作数据标记。判断"是不是秒杀券"要看有没有配套的 tb_seckill_voucher 记录（§5.2.1），
      * 不要 if (type == 1)。
      */
     private Integer type;

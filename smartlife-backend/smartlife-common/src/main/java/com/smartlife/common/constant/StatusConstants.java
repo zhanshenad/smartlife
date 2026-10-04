@@ -65,7 +65,7 @@ public class StatusConstants {
     /**
      * 券订单状态，对应 tb_voucher_order.status。
      * 这是"券用了没有"，与券库存是两回事（§5.2.4）。
-     * 本项目是领券模型（§5.2.2），只有两个状态；黑马点评的"未支付/已支付/退款"是买券模型的，不要照搬。
+     * 本项目是领券模型（§5.2.2），只有未使用与已使用两个状态，不要照搬买券模型的三态。
      */
     public static class VoucherOrder {
         private VoucherOrder() {

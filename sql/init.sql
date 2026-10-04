@@ -2,7 +2,7 @@
 -- 智慧生活 SmartLife · 建表脚本
 --
 -- 设计约定（详见《重构计划》§6.2）：
---   1. 命名对齐苍穹外卖：外键字段带 _id 后缀，时间字段统一 create_time / update_time
+--   1. 命名约定：外键字段带 _id 后缀，时间字段统一 create_time / update_time
 --   2. 所有金额用 INT 存「分」，不用 DECIMAL / FLOAT —— 浮点误差在钱上是事故
 --   3. 唯一索引必须建在业务约束上，不能只靠代码判重
 --   4. 券按「领券模型」建：tb_voucher 用 threshold + actual_value，没有 pay_value

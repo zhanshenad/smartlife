@@ -19,7 +19,7 @@ import java.util.Map;
 
 /**
  * 看板实现。趋势的日期轴由 Java 补全：DB 只返回有数据的日子，
- * 空档补零，前端拿到连续序列（苍穹报表同款做法）。
+ * 空档补零，前端拿到连续序列，图表不会断裂。
  */
 @Service
 public class ReportServiceImpl implements IReportService {

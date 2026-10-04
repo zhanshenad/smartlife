@@ -6,7 +6,7 @@ import java.io.Serializable;
 
 /**
  * 统一响应体。
- * 约定（与苍穹外卖一致）：code=1 成功，code=0 失败。
+ * 约定：code=1 成功，code=0 失败。
  * 前端所有接口都按这个结构取值，改动会连带改前端，不要单独调整。
  */
 @Data

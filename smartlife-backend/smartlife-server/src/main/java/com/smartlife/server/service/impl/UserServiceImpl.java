@@ -145,7 +145,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         User user = getById(BaseContext.require().getId());
         boolean hasPassword = user.getPassword() != null && !user.getPassword().isBlank();
         if (hasPassword) {
-            // 已有密码：必须验旧密码（苍穹 editPassword 同款护栏）
+            // 已有密码：必须验旧密码，防止会话被盗后直接改密
             if (dto.getOldPassword() == null
                     || !passwordEncoder.matches(dto.getOldPassword(), user.getPassword())) {
                 throw new BusinessException("旧密码错误");
