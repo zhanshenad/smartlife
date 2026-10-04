@@ -13,8 +13,10 @@ import com.smartlife.pojo.entity.VoucherOrder;
 import com.smartlife.pojo.vo.VoucherOrderVO;
 import com.smartlife.server.mapper.SeckillVoucherMapper;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -34,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -63,6 +66,17 @@ class VoucherOrderServiceImplTest {
 
     @MockBean
     private RabbitTemplate rabbitTemplate;
+
+    /** mock 的 convertAndSend 不会完成 future，不打桩会等满 3 秒超时；这里模拟 broker 回 ack */
+    @BeforeEach
+    void stubPublisherConfirm() {
+        doAnswer(invocation -> {
+            CorrelationData correlationData = invocation.getArgument(3);
+            correlationData.getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(),
+                any(SeckillMessage.class), any(CorrelationData.class));
+    }
 
     @AfterEach
     void cleanUp() {
@@ -234,7 +248,8 @@ class VoucherOrderServiceImplTest {
         assertEquals("9", redis.opsForValue().get(RedisConstants.SECKILL_STOCK_KEY + v.getId()));
         assertTrue(Boolean.TRUE.equals(redis.opsForSet().isMember(
                 RedisConstants.SECKILL_ORDER_KEY + v.getId(), USER_ID.toString())));
-        verify(rabbitTemplate).convertAndSend(anyString(), anyString(), any(SeckillMessage.class));
+        verify(rabbitTemplate).convertAndSend(anyString(), anyString(),
+                any(SeckillMessage.class), any(CorrelationData.class));
     }
 
     @Test

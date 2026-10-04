@@ -19,9 +19,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -53,10 +56,13 @@ class OrderServiceImplTest {
     private IVoucherOrderService voucherOrderService;
     @Autowired
     private RedisIdWorker idWorker;
+    @Autowired
+    private StringRedisTemplate redis;
 
     @AfterEach
     void cleanUp() {
         BaseContext.remove();
+        redis.delete(RedisConstants.ORDER_SUBMIT_TOKEN_KEY + USER_ID);
     }
 
     private void loginAsUser() {
@@ -274,11 +280,41 @@ class OrderServiceImplTest {
         assertEquals(StatusConstants.VoucherOrder.UNUSED,
                 voucherOrderService.getById(claim.getId()).getStatus());
 
-        // 已支付订单再超时取消：静默跳过
+        // 已支付订单再超时取消：静默跳过。
+        // 两次 submit 模拟两次独立的用户操作，中间清掉防重复提交 token——
+        // 真实场景下两次下单相隔远不止 5 秒，不清理会被自己的防抖逻辑挡住
+        redis.delete(RedisConstants.ORDER_SUBMIT_TOKEN_KEY + USER_ID);
         addDish(RICE);
         OrderSubmitVO vo2 = orderService.submit(dto);
         orderService.pay(vo2.getId());
         orderService.timeoutCancel(vo2.getId());
         assertEquals(StatusConstants.Order.TO_BE_CONFIRMED, orderService.getById(vo2.getId()).getStatus());
+    }
+
+    @Test
+    @DisplayName("防重复提交：TTL 窗口内第二次提交被拒")
+    void submitRejectsDuplicateWithinWindow() {
+        loginAsUser();
+        addDish(RICE);
+        assertNotNull(orderService.submit(submitDto()));
+
+        addDish(RICE);
+        BusinessException e = assertThrows(BusinessException.class, () -> orderService.submit(submitDto()));
+        assertTrue(e.getMessage().contains("请勿重复提交"));
+    }
+
+    /** 用 NOT_SUPPORTED 让 submit 走自己的事务，否则回滚钩子要等测试结束才触发、断言不到释放 */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("防重复提交：业务失败释放 token，用户可立刻重试")
+    void submitReleasesTokenOnFailure() {
+        loginAsUser();
+        BusinessException first = assertThrows(BusinessException.class, () -> orderService.submit(submitDto()));
+        assertTrue(first.getMessage().contains("购物车为空"));
+
+        // token 已随事务回滚释放：第二次仍是"购物车为空"，而不是被防抖挡成"请勿重复提交"
+        BusinessException second = assertThrows(BusinessException.class, () -> orderService.submit(submitDto()));
+        assertTrue(second.getMessage().contains("购物车为空"),
+                "业务失败后 token 应被释放，用户不必等 5 秒 TTL");
     }
 }

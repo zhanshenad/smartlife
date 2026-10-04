@@ -8,9 +8,11 @@ import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.amqp.RabbitTemplateCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -31,6 +33,18 @@ public class RabbitConfig {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
         return new Jackson2JsonMessageConverter(mapper);
+    }
+
+    /** 把确认回调挂到 Boot 自动配置的 RabbitTemplate 上；自己声明 bean 会丢掉自动配置 */
+    @Bean
+    public RabbitTemplateCustomizer publisherConfirmCustomizer(
+            RabbitTemplate.ConfirmCallback confirmCallback,
+            RabbitTemplate.ReturnsCallback returnsCallback) {
+        return template -> {
+            template.setConfirmCallback(confirmCallback);
+            template.setReturnsCallback(returnsCallback);
+            template.setMandatory(true);
+        };
     }
 
     // ==================== 秒杀订单：正常队列 + 死信队列 ====================

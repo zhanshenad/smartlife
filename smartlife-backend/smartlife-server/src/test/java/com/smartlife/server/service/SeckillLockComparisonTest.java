@@ -5,14 +5,17 @@ import com.smartlife.common.constant.StatusConstants;
 import com.smartlife.common.context.BaseContext;
 import com.smartlife.common.exception.BusinessException;
 import com.smartlife.common.model.LoginUser;
+import com.smartlife.pojo.dto.SeckillMessage;
 import com.smartlife.pojo.entity.SeckillVoucher;
 import com.smartlife.pojo.entity.Voucher;
 // import com.smartlife.pojo.entity.VoucherOrder;
 import com.smartlife.server.mapper.SeckillVoucherMapper;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 // import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -28,6 +31,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 
 /**
  * 对照组（Redisson 锁同步链路）测试：用测试属性把开关切到 false，
@@ -51,6 +57,17 @@ class SeckillLockComparisonTest {
 
     @MockBean
     private RabbitTemplate rabbitTemplate;
+
+    /** 本类走同步链路不发消息，打桩只为与异步链路测试保持一致，顺带覆盖误发的情况 */
+    @BeforeEach
+    void stubPublisherConfirm() {
+        doAnswer(invocation -> {
+            CorrelationData correlationData = invocation.getArgument(3);
+            correlationData.getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(),
+                any(SeckillMessage.class), any(CorrelationData.class));
+    }
 
     @AfterEach
     void cleanUp() {

@@ -41,6 +41,14 @@ spring:
     username: smartlife
     password: smartlife123
     virtual-host: /
+    # 生产者确认：broker 收到消息后异步回 ack/nack，配合 CorrelationData.getFuture() 同步等待。
+    # correlated 才带 future，simple 模式只能全局回调、拿不到单条消息的结果。
+    publisher-confirm-type: correlated
+    # 消息到了交换机但路由不到队列时触发 ReturnsCallback（拓扑被改坏的告警）
+    publisher-returns: true
+    template:
+      # returns 生效的前提：不设 mandatory，broker 会静默丢弃无法路由的消息
+      mandatory: true
     listener:
       simple:
         # 手动 ACK：成功 basicAck，异常 basicNack(requeue=false) 进死信，

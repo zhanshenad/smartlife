@@ -53,6 +53,16 @@ public class RedisConstants {
     /** 秒杀对照组（SECKILL_LUA_ENABLED=false）的一人一单锁，按用户加锁 */
     public static final String SECKILL_LOCK_KEY = "lock:seckill:order:";
 
+    // ==================== 防重复提交（§5.2.7 ⑤） ====================
+
+    /** 下单防重复提交 token，按用户。秒杀有 Lua 挡重，普通下单没有，双击会各插一单 */
+    public static final String ORDER_SUBMIT_TOKEN_KEY = "order:submit:token:";
+    public static final long ORDER_SUBMIT_TOKEN_TTL_SECONDS = 5L;
+
+    /** 普通券领取防重复提交 token，按 用户:券 组合（纯按用户会误伤连领不同券） */
+    public static final String VOUCHER_GRAB_TOKEN_KEY = "voucher:grab:token:";
+    public static final long VOUCHER_GRAB_TOKEN_TTL_SECONDS = 5L;
+
     // ==================== 缓存（§5.3） ====================
 
     public static final String CACHE_SHOP_KEY = "cache:shop:";

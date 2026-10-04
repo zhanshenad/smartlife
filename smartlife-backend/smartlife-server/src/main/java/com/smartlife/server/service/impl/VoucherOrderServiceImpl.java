@@ -14,12 +14,14 @@ import com.smartlife.pojo.entity.VoucherOrder;
 import com.smartlife.pojo.vo.VoucherOrderVO;
 import com.smartlife.server.mapper.SeckillVoucherMapper;
 import com.smartlife.server.mapper.VoucherOrderMapper;
+import com.smartlife.server.mq.SeckillSlotRefund;
 import com.smartlife.server.service.IShopService;
 import com.smartlife.server.service.IVoucherOrderService;
 import com.smartlife.server.service.IVoucherService;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
@@ -33,6 +35,7 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -51,6 +54,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     /** 秒杀预检脚本。正文见 resources/lua/seckill.lua */
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
 
+    /** 等待 broker 确认的超时秒数。超时属于"消息状态未知"，见 seckillWithLua 的分支说明 */
+    private static final long MQ_CONFIRM_TIMEOUT_SECONDS = 3L;
+
     static {
         GRAB_SCRIPT = new DefaultRedisScript<>();
         GRAB_SCRIPT.setLocation(new ClassPathResource("lua/grab.lua"));
@@ -68,11 +74,13 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private final TransactionTemplate transactionTemplate;
     private final RabbitTemplate rabbitTemplate;
     private final RedissonClient redissonClient;
+    private final SeckillSlotRefund seckillSlotRefund;
 
     public VoucherOrderServiceImpl(StringRedisTemplate redis, IVoucherService voucherService,
                                    IShopService shopService, SeckillVoucherMapper seckillVoucherMapper,
                                    RedisIdWorker idWorker, TransactionTemplate transactionTemplate,
-                                   RabbitTemplate rabbitTemplate, RedissonClient redissonClient) {
+                                   RabbitTemplate rabbitTemplate, RedissonClient redissonClient,
+                                   SeckillSlotRefund seckillSlotRefund) {
         this.redis = redis;
         this.voucherService = voucherService;
         this.shopService = shopService;
@@ -81,6 +89,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         this.transactionTemplate = transactionTemplate;
         this.rabbitTemplate = rabbitTemplate;
         this.redissonClient = redissonClient;
+        this.seckillSlotRefund = seckillSlotRefund;
     }
 
     // ==================== 普通券：同步链路（§5.2.5） ====================
@@ -92,6 +101,15 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         // 是不是秒杀券看"有没有配套 tb_seckill_voucher 记录"，不看 type 字段（§5.2.1）
         if (seckillVoucherMapper.selectById(voucherId) != null) {
             throw new BusinessException("秒杀券请从秒杀入口抢购");
+        }
+
+        // 重复提交 token：这里的收益比下单那处小——下面的 SISMEMBER 已经原子挡掉了同券重复领，
+        // 双击本来就会拿到返回码 2。加它是补"落库失败回滚 Set 之后的重试窗口"这段 Lua 不管的缝。
+        // key 用 用户:券 组合，否则"领完 A 券立刻领 B 券"这种合法操作会被误伤。
+        String grabTokenKey = RedisConstants.VOUCHER_GRAB_TOKEN_KEY + userId + ":" + voucherId;
+        if (!Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(grabTokenKey, "1",
+                RedisConstants.VOUCHER_GRAB_TOKEN_TTL_SECONDS, TimeUnit.SECONDS))) {
+            throw new BusinessException("请勿重复提交");
         }
 
         // ① Set 预检挡住绝大多数重复请求，不碰 DB
@@ -108,8 +126,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         try {
             save(order);
         } catch (DuplicateKeyException e) {
-            // ③ 落库失败要把 Set 里的用户摘掉，否则会卡在"已领取过"但券包里没有
+            // ③ 落库失败要把 Set 里的用户摘掉，否则会卡在"已领取过"但券包里没有；
+            // token 一并释放，让用户能立刻重试而不是白等 5 秒
             redis.opsForSet().remove(RedisConstants.VOUCHER_ORDER_KEY + voucherId, userId.toString());
+            redis.delete(grabTokenKey);
             throw new BusinessException("您已领取过该券");
         }
     }
@@ -146,8 +166,38 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             throw new BusinessException(seckillFailMessage(r));
         }
 
+        // 带 CorrelationData 发送并同步等 broker 确认，避免"库存已扣、消息没进队列"卡死用户
+        CorrelationData correlationData = new CorrelationData(String.valueOf(orderId));
         rabbitTemplate.convertAndSend(MQConstants.SECKILL_EXCHANGE, MQConstants.SECKILL_ORDER_ROUTING_KEY,
-                new SeckillMessage(userId, voucherId, orderId));
+                new SeckillMessage(userId, voucherId, orderId), correlationData);
+
+        boolean delivered = false;
+        try {
+            CorrelationData.Confirm confirm =
+                    correlationData.getFuture().get(MQ_CONFIRM_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            // getReturned() 能同步读到，依赖 RabbitMQ「basic.return 先于 basic.ack」的顺序保证：
+            // 路由不到队列时 broker 仍会回 ack，只能靠 returned 是否为 null 区分
+            delivered = confirm.isAck() && correlationData.getReturned() == null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("等待 broker 确认被中断，消息状态未知，需人工核对：orderId={}", orderId, e);
+            throw new BusinessException("系统繁忙，请稍后重试");
+        } catch (Exception e) {
+            // 超时：消息可能其实已投递、消费者会照常建单，这时补偿就等于超卖，所以只报不动
+            log.error("等待 broker 确认失败，消息状态未知（可能已投递），不补偿以免超卖，需人工核对：orderId={}",
+                    orderId, e);
+            throw new BusinessException("系统繁忙，请稍后重试");
+        }
+
+        if (!delivered) {
+            // 明确 nack 或路由失败：消息确定没进队列，不会产生订单，把预扣的名额还回去让用户能重试
+            seckillSlotRefund.refund(voucherId, userId);
+            log.error("秒杀消息未投递成功，已回补名额：orderId={}, voucherId={}, userId={}",
+                    orderId, voucherId, userId);
+            throw new BusinessException("系统繁忙，请稍后重试");
+        }
+        // 两条边界：不做 Outbox（那堵的是"Lua 成功后、发送之前进程崩溃"，与此处不重叠，属演进项）；
+        // 消费者侧不动（手动 ACK 加三重幂等防线已完备）
         // 返回时订单尚未落库——这就是异步链路"快"的来源（§5.2.9）
         return orderId;
     }

@@ -37,6 +37,7 @@ import com.smartlife.server.websocket.WebSocketServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -48,6 +49,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -75,13 +77,14 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
     private final RedisIdWorker idWorker;
     private final RabbitTemplate rabbitTemplate;
     private final AuditRecorder auditRecorder;
+    private final StringRedisTemplate redis;
 
     public OrderServiceImpl(IDishService dishService, ISetmealService setmealService,
                             IShoppingCartService shoppingCartService, IShopService shopService,
                             IVoucherOrderService voucherOrderService, OrderDetailMapper orderDetailMapper,
                             DishMapper dishMapper, SetmealMapper setmealMapper,
                             RedisIdWorker idWorker, RabbitTemplate rabbitTemplate,
-                            AuditRecorder auditRecorder) {
+                            AuditRecorder auditRecorder, StringRedisTemplate redis) {
         this.dishService = dishService;
         this.setmealService = setmealService;
         this.shoppingCartService = shoppingCartService;
@@ -93,6 +96,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
         this.idWorker = idWorker;
         this.rabbitTemplate = rabbitTemplate;
         this.auditRecorder = auditRecorder;
+        this.redis = redis;
     }
 
     // ==================== 用户端 ====================
@@ -101,6 +105,25 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
     @Transactional
     public OrderSubmitVO submit(OrdersSubmitDTO dto) {
         Long userId = BaseContext.require().getId();
+
+        // 防重复提交：库存乐观锁只保证不超卖，不保证"一个用户只下这一单"——
+        // 双击的两个请求各生成一个订单号，在数据层面都是合法订单，只能在这里拦（§5.2.7 ⑤）。
+        String submitTokenKey = RedisConstants.ORDER_SUBMIT_TOKEN_KEY + userId;
+        if (!Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(submitTokenKey, "1",
+                RedisConstants.ORDER_SUBMIT_TOKEN_TTL_SECONDS, TimeUnit.SECONDS))) {
+            throw new BusinessException("请勿重复提交");
+        }
+        // token 是 Redis 写，不参与数据库事务，回滚不会撤销它；业务失败时手动释放，
+        // 让用户改完购物车能立刻重试，不用白等 5 秒
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                    redis.delete(submitTokenKey);
+                }
+            }
+        });
+
         List<ShoppingCart> carts = shoppingCartService.listMine();
         if (carts.isEmpty()) {
             throw new BusinessException("购物车为空，无法下单");
@@ -180,7 +203,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
 
         shoppingCartService.cleanMine();
 
-        // 事务提交后才发延迟消息：回滚了就不发，避免"订单没落库、超时消息先到期"的幻影取消
+        // 事务提交后才发延迟消息：回滚了就不发，避免"订单没落库、超时消息先到期"的幻影取消。
+        // 这里不加同步确认——afterCommit 里没有请求线程可等，丢了有每分钟兜底扫表自愈
         Long orderId = order.getId();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
