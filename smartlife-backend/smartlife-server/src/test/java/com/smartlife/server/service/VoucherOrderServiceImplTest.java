@@ -304,7 +304,7 @@ class VoucherOrderServiceImplTest {
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    @DisplayName("DB 库存漂移：回滚订单并回补 Redis（修黑马静默超卖）")
+    @DisplayName("DB 库存漂移：回滚订单并回补 Redis，不静默提交")
     void handleRollsBackOnDbDrift() {
         // 挂起测试事务：setRollbackOnly 只有在独立事务里才会真回滚（与消费者生产路径一致）
         Voucher v = newSeckillVoucher(0, 5,
